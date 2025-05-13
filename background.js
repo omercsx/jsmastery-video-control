@@ -1,12 +1,8 @@
-// Add console logging to verify the background service worker is running
-console.log('Video Control Extension background service worker loaded');
-
 // Add a flag to track if a command is currently being processed
 let isProcessingCommand = false;
 
 // Listen for keyboard commands
 chrome.commands.onCommand.addListener((command) => {
-  console.log('Command received in background script:', command);
 
   // Prevent rapid-fire commands that could cause conflicts
   if (isProcessingCommand) {
@@ -20,7 +16,6 @@ chrome.commands.onCommand.addListener((command) => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs.length > 0) {
       const activeTab = tabs[0];
-      console.log('Active tab:', activeTab.url);
 
       // First try to send a message to see if content script is already running
       try {
@@ -29,16 +24,13 @@ chrome.commands.onCommand.addListener((command) => {
           { action: 'ping' },
           function (response) {
             if (chrome.runtime.lastError || !response) {
-              console.log('Content script not yet injected, injecting now...');
               injectContentScriptAndSendCommand(activeTab.id, command);
             } else {
-              console.log('Content script already running, sending command directly');
               sendCommandToContentScript(activeTab.id, command);
             }
           }
         );
       } catch (error) {
-        console.error('Error checking if content script is running:', error);
         injectContentScriptAndSendCommand(activeTab.id, command);
 
         // Release the command processing lock after a delay
@@ -47,7 +39,6 @@ chrome.commands.onCommand.addListener((command) => {
         }, 500);
       }
     } else {
-      console.error('No active tab found');
       isProcessingCommand = false;
     }
   });
@@ -60,14 +51,12 @@ function injectContentScriptAndSendCommand(tabId, command) {
     files: ['content.js']
   })
     .then(() => {
-      console.log('Content script injected successfully');
       // Wait a moment to make sure the content script is fully loaded
       setTimeout(() => {
         sendCommandToContentScript(tabId, command);
       }, 200); // Increased from 100 to 200 for more reliable loading
     })
     .catch(error => {
-      console.error('Error injecting content script:', error);
 
       // Try a direct script injection as a fallback
       chrome.scripting.executeScript({
@@ -75,7 +64,6 @@ function injectContentScriptAndSendCommand(tabId, command) {
         func: executeCommandDirectly,
         args: [command]
       }).catch(err => {
-        console.error('Error with direct command execution:', err);
       }).finally(() => {
         // Release the command processing lock
         setTimeout(() => {
@@ -91,13 +79,6 @@ function sendCommandToContentScript(tabId, command) {
     tabId,
     { action: 'controlVideo', command: command },
     function (response) {
-      if (chrome.runtime.lastError) {
-        console.error('Error sending message to content script:', chrome.runtime.lastError);
-      } else if (response && response.success) {
-        console.log('Command executed successfully:', command);
-      } else {
-        console.warn('Command was not executed successfully');
-      }
 
       // Release the command processing lock after a delay
       setTimeout(() => {
@@ -109,17 +90,14 @@ function sendCommandToContentScript(tabId, command) {
 
 // Function to be injected directly if content script fails
 function executeCommandDirectly(command) {
-  console.log('Executing command directly:', command);
 
   // Try to detect the specific player pattern first (like seen in screenshot)
   const controlGroups = document.querySelectorAll('[class*="controls"], [class*="Controls"], [class*="player"], [class*="Player"]');
-  console.log(`Found ${controlGroups.length} potential control groups`);
 
   for (const group of controlGroups) {
     const buttons = group.querySelectorAll('button');
     if (buttons.length >= 3) {
       // Found a potential match to the layout in the screenshot (3 buttons in a row)
-      console.log('Found potential player control pattern with 3+ buttons');
 
       // Map commands to positions in the 3-button control layout (based on screenshot)
       const positionMap = {
@@ -131,7 +109,6 @@ function executeCommandDirectly(command) {
       const targetIndex = positionMap[command];
       if (targetIndex !== undefined && targetIndex < buttons.length) {
         const targetButton = buttons[targetIndex];
-        console.log(`Clicking button ${targetIndex} in player pattern`);
 
         try {
           // Try multiple ways to click the button
@@ -147,7 +124,6 @@ function executeCommandDirectly(command) {
           targetButton.click();
           return true;
         } catch (e) {
-          console.error('Error clicking button in player pattern:', e);
           // Continue to try other methods
         }
       }
@@ -169,22 +145,18 @@ function executeCommandDirectly(command) {
     switch (command) {
       case 'fast-forward':
         video.currentTime += 10;
-        console.log('Fast-forwarded video by 10 seconds (direct method)');
         return true;
       case 'rewind':
         video.currentTime -= 10;
-        console.log('Rewound video by 10 seconds (direct method)');
         return true;
       case 'play-pause':
         if (video.paused) {
           const playPromise = video.play();
           if (playPromise !== undefined) {
-            playPromise.catch(error => console.error('Error playing video:', error));
+            playPromise.catch(error => { });
           }
-          console.log('Playing video (direct method)');
         } else {
           video.pause();
-          console.log('Pausing video (direct method)');
         }
         return true;
     }
@@ -201,7 +173,6 @@ function executeCommandDirectly(command) {
     if (buttonSelectors[command]) {
       const buttons = document.querySelectorAll(buttonSelectors[command]);
       if (buttons.length > 0) {
-        console.log(`Found ${buttons.length} control buttons for ${command}`);
 
         // Click all matching buttons to maximize chances of success
         for (const button of buttons) {
@@ -231,7 +202,6 @@ function executeCommandDirectly(command) {
 
       for (const term of textTerms) {
         if (innerHTML.includes(term.toLowerCase()) || innerText.includes(term.toLowerCase())) {
-          console.log(`Found button with matching text for ${command}`);
           btn.click();
           return true;
         }
@@ -259,8 +229,6 @@ function executeCommandDirectly(command) {
         }));
       });
 
-      console.log(`Simulated ${key} key press for ${command}`);
-
       // Try alternate key if available
       if (alt) {
         const [altKey, altKeyCode] = alt;
@@ -274,14 +242,11 @@ function executeCommandDirectly(command) {
             cancelable: true
           }));
         });
-
-        console.log(`Simulated alternate ${altKey} key press for ${command}`);
       }
 
       return true;
     }
   }
 
-  console.error('Could not execute command directly');
   return false;
 } 

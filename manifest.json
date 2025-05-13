@@ -36,8 +36,8 @@
 		},
 		"play-pause": {
 			"suggested_key": {
-				"default": "Alt+Space",
-				"mac": "Alt+Space"
+				"default": "Alt+Shift+2",
+				"mac": "Alt+Shift+2"
 			},
 			"description": "Play/Pause the video"
 		}

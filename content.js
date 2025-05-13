@@ -1,8 +1,5 @@
 // This script runs directly in the context of the web page
 
-// Add console logging to confirm content script is running
-console.log('Video Control Extension content script loaded');
-
 // Keep track of whether we're in the main script instance
 let isMainScriptInstance = true;
 
@@ -51,11 +48,8 @@ function preventDefaultOnce(e) {
 
 // Listen for messages from the background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Message received in content script:', message);
-
   // Respond to ping to confirm content script is running
   if (message.action === 'ping') {
-    console.log('Ping received, responding to confirm content script is running');
     sendResponse({ success: true });
     return true;
   }
@@ -63,49 +57,74 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'controlVideo') {
     // If another instance is already processing a command, ignore this one
     if (isProcessingCommand) {
-      console.log('This instance is already processing a command, ignoring this one');
       sendResponse({ success: false, reason: 'duplicate-instance' });
       return true;
     }
 
     // Try to acquire the global command lock
     if (!acquireCommandLock()) {
-      console.log('Another instance has the command lock, ignoring this request');
       sendResponse({ success: false, reason: 'locked' });
       return true;
     }
 
-    // Set processing lock to prevent multiple instances from handling the same command
-    isProcessingCommand = true;
+    try {
+      // Set processing lock to prevent multiple instances from handling the same command
+      isProcessingCommand = true;
 
-    const command = message.command;
+      const command = message.command;
 
-    // Prevent any default actions from the website when our commands run
-    const preventHandler = (e) => preventDefaultOnce(e);
-    document.addEventListener('keydown', preventHandler, true);
-    document.addEventListener('keyup', preventHandler, true);
+      // Prevent any default actions from the website when our commands run
+      const preventHandler = (e) => preventDefaultOnce(e);
+      document.addEventListener('keydown', preventHandler, true);
+      document.addEventListener('keyup', preventHandler, true);
 
-    const success = performVideoControl(command);
-    console.log('Command execution result:', success);
+      // For play-pause, try direct button click only - more reliable than fallbacks
+      if (command === 'play-pause') {
+        const exactButton = findExactButton(command);
+        if (exactButton) {
+          const clickResult = tryButtonClick(exactButton);
 
-    // Release the processing lock
-    isProcessingCommand = false;
+          // Clean up and respond
+          setTimeout(() => {
+            document.removeEventListener('keydown', preventHandler, true);
+            document.removeEventListener('keyup', preventHandler, true);
+          }, 200);
 
-    // Release global lock
-    releaseCommandLock();
+          // Release locks and respond
+          isProcessingCommand = false;
+          releaseCommandLock();
+          sendResponse({ success: clickResult });
+          return true;
+        }
+      }
 
-    sendResponse({ success: success });
+      // For other commands, or if play-pause button not found, use regular flow
+      const success = performVideoControl(command);
 
-    // If this instance failed but got a response, mark as secondary
-    if (!success) {
-      isMainScriptInstance = false;
+      // Clean up event listeners after a short delay
+      setTimeout(() => {
+        document.removeEventListener('keydown', preventHandler, true);
+        document.removeEventListener('keyup', preventHandler, true);
+      }, 200);
+
+      // Release the processing lock
+      isProcessingCommand = false;
+
+      // Release global lock
+      releaseCommandLock();
+
+      sendResponse({ success: success });
+
+      // If this instance failed but got a response, mark as secondary
+      if (!success) {
+        isMainScriptInstance = false;
+      }
+    } catch (error) {
+      console.error('Error processing command:', error);
+      isProcessingCommand = false;
+      releaseCommandLock();
+      sendResponse({ success: false, error: error.message });
     }
-
-    // Clean up event listeners after a short delay
-    setTimeout(() => {
-      document.removeEventListener('keydown', preventHandler, true);
-      document.removeEventListener('keyup', preventHandler, true);
-    }, 200);
   }
   return true; // Keep the message channel open for asynchronous response
 });
@@ -1064,81 +1083,36 @@ function tryRewindFallback() {
 
 function tryPlayPauseFallback() {
   try {
-    // Try direct approach first (which we may have already tried, but double-check)
-    const directButton = findExactButton('play-pause');
-    if (directButton) {
-      const result = tryButtonClick(directButton);
-      if (result) {
-        console.log('Direct button click in fallback succeeded');
-        return true;
-      }
+    console.log('Executing play-pause fallback, using highly targeted approach');
+
+    // Find only the plyr play button and try to click it first - this is the most reliable
+    const plyrButton = document.querySelector('button[data-plyr="play"]');
+    if (plyrButton) {
+      console.log('Found Plyr play button directly:', plyrButton.outerHTML);
+      plyrButton.click();
+      return true;
     }
 
-    // Find play/pause buttons while strictly avoiding navigation buttons
-    const validButtons = [];
-
-    // Direct data-plyr selectors (safest)
-    const plyrButtons = document.querySelectorAll('button[data-plyr="play"]');
-    if (plyrButtons.length > 0) {
-      console.log(`Found ${plyrButtons.length} buttons with data-plyr="play"`);
-      validButtons.push(...Array.from(plyrButtons));
-    }
-
-    // Look for SVG use with play/pause reference
+    // Next most reliable - find buttons with plyr svg references
     const allButtons = document.querySelectorAll('button');
-    for (const btn of allButtons) {
-      // Skip any buttons that are definitely not player controls
-      if (
-        btn.getAttribute('type') === 'submit' || // Submit buttons
-        btn.getAttribute('aria-haspopup') === 'dialog' || // Dialog trigger buttons
-        btn.parentElement?.getAttribute('aria-haspopup') === 'dialog' || // Dialog parent buttons
-        (btn.textContent?.includes('Search')) || // Search buttons
-        btn.className.includes('rounded-lg bg-dark-400') || // Search bar button
-        btn.className.includes('mr-5') || // Notification button
-        btn.getAttribute('aria-controls')?.includes('search') // Search controls
-      ) {
-        continue;
-      }
-
+    const playPauseButtons = Array.from(allButtons).filter(btn => {
       const svgUse = btn.querySelector('svg use');
-      if (svgUse) {
-        // Check both href and xlink:href attributes
-        const href = svgUse.getAttribute('href') || svgUse.getAttribute('xlink:href') || "";
-        if (href === '#plyr-play' || href === '#plyr-pause') {
-          // Check if it's not already in our list
-          if (!validButtons.includes(btn)) {
-            validButtons.push(btn);
-          }
-        }
-      }
+      if (!svgUse) return false;
 
-      // Check for play/pause text exactly
-      const span = btn.querySelector('.plyr__sr-only, .sr-only');
-      if (span) {
-        const text = span.textContent.trim();
-        if (text === 'Play' || text === 'Pause') {
-          if (!validButtons.includes(btn)) {
-            validButtons.push(btn);
-          }
-        }
-      }
+      const href = svgUse.getAttribute('href') || svgUse.getAttribute('xlink:href') || "";
+      return href === '#plyr-play' || href === '#plyr-pause';
+    });
+
+    if (playPauseButtons.length > 0) {
+      console.log('Found play/pause button with svg reference:', playPauseButtons[0].outerHTML);
+      playPauseButtons[0].click();
+      return true;
     }
 
-    if (validButtons.length > 0) {
-      console.log(`Found ${validButtons.length} safe play/pause buttons to try`);
-
-      for (const btn of validButtons) {
-        console.log('Trying safe play/pause button:', btn.outerHTML);
-        if (tryButtonClick(btn)) {
-          return true;
-        }
-      }
-    }
-
-    // Try to find a video element directly and play/pause it
+    // Try direct video approach - third most reliable
     const videos = document.querySelectorAll('video');
     if (videos.length > 0) {
-      console.log('Attempting direct play/pause on video element');
+      console.log('No buttons found, attempting direct play/pause on video element');
       const video = videos[0];
 
       // Toggle play state
@@ -1158,33 +1132,62 @@ function tryPlayPauseFallback() {
       return true;
     }
 
-    // Only perform keyboard events if we've found no other way
-    console.log('Trying keyboard method as last resort for play/pause');
+    // Only try keyboard as an absolute last resort, with better focus handling
+    console.log('All direct methods failed, trying keyboard shortcut');
 
-    // Focus on document body to avoid text fields
-    document.body.focus();
+    // Try focused element approach first
+    const activeElement = document.activeElement;
+    if (activeElement && activeElement.tagName !== 'INPUT' && activeElement.tagName !== 'TEXTAREA') {
+      // Send space key to the active element if it's not a text field
+      const spaceEvent = new KeyboardEvent('keydown', {
+        key: ' ',
+        code: 'Space',
+        keyCode: 32,
+        which: 32,
+        bubbles: false,
+        cancelable: true
+      });
 
-    const spaceKeyDown = new KeyboardEvent('keydown', {
-      key: ' ',
-      code: 'Space',
-      keyCode: 32,
-      which: 32,
-      bubbles: false, // Set to false to avoid triggering website handlers
+      activeElement.dispatchEvent(spaceEvent);
+
+      setTimeout(() => {
+        const spaceUpEvent = new KeyboardEvent('keyup', {
+          key: ' ',
+          code: 'Space',
+          keyCode: 32,
+          which: 32,
+          bubbles: false,
+          cancelable: true
+        });
+
+        activeElement.dispatchEvent(spaceUpEvent);
+      }, 50);
+
+      return true;
+    }
+
+    // Last resort - try K key
+    const kKeyDown = new KeyboardEvent('keydown', {
+      key: 'k',
+      code: 'KeyK',
+      keyCode: 75,
+      which: 75,
+      bubbles: false,
       cancelable: true
     });
 
-    const spaceKeyUp = new KeyboardEvent('keyup', {
-      key: ' ',
-      code: 'Space',
-      keyCode: 32,
-      which: 32,
-      bubbles: false, // Set to false to avoid triggering website handlers
+    const kKeyUp = new KeyboardEvent('keyup', {
+      key: 'k',
+      code: 'KeyK',
+      keyCode: 75,
+      which: 75,
+      bubbles: false,
       cancelable: true
     });
 
-    document.dispatchEvent(spaceKeyDown);
+    document.dispatchEvent(kKeyDown);
     setTimeout(() => {
-      document.dispatchEvent(spaceKeyUp);
+      document.dispatchEvent(kKeyUp);
     }, 50);
 
     return true;
@@ -1199,21 +1202,50 @@ function tryButtonClick(button) {
   if (!button) return false;
 
   try {
-    // First try direct click (simplest approach)
-    button.click();
+    console.log('Trying to click button with enhanced reliability:', button.outerHTML);
 
-    // Then try a more controlled approach with events
-    const clickEvent = new MouseEvent('click', {
+    // First try the most direct method - focus and click
+    button.focus();
+
+    // Try mousedown/mouseup for player UIs that need these events
+    button.dispatchEvent(new MouseEvent('mousedown', {
       view: window,
-      bubbles: false,  // Set to false to avoid triggering website handlers
+      bubbles: true,
       cancelable: true,
       composed: true
-    });
+    }));
 
-    button.dispatchEvent(clickEvent);
+    button.dispatchEvent(new MouseEvent('mouseup', {
+      view: window,
+      bubbles: true,
+      cancelable: true,
+      composed: true
+    }));
 
-    // Log success
-    console.log('Successfully clicked button:', button.outerHTML);
+    // Then perform the direct click
+    button.click();
+
+    // Also try clicking any SVG inside if present (some players listen to these)
+    const svg = button.querySelector('svg');
+    if (svg) {
+      svg.click();
+    }
+
+    // For play buttons, try setting aria-pressed attribute directly
+    // This can sometimes trigger UI updates when click events don't work
+    if (button.getAttribute('data-plyr') === 'play') {
+      const isPressed = button.getAttribute('aria-pressed') === 'true';
+      button.setAttribute('aria-pressed', !isPressed);
+
+      // Add/remove the pressed class which some players use
+      if (isPressed) {
+        button.classList.remove('plyr__control--pressed');
+      } else {
+        button.classList.add('plyr__control--pressed');
+      }
+    }
+
+    console.log('Successfully clicked button using multiple methods');
     return true;
   } catch (e) {
     console.error('Error clicking button:', e);
