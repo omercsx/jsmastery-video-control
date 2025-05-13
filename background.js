@@ -6,7 +6,6 @@ chrome.commands.onCommand.addListener((command) => {
 
   // Prevent rapid-fire commands that could cause conflicts
   if (isProcessingCommand) {
-    console.log('Already processing a command, ignoring this one');
     return;
   }
 

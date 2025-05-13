@@ -131,15 +131,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Function to control video based on commands
 function performVideoControl(command) {
-  console.log('Attempting to perform video control:', command);
-
   // First try the direct button approach (most reliable for Plyr)
   const exactButton = findExactButton(command);
   if (exactButton) {
-    console.log(`Found exact button for ${command}, trying direct click`);
     const clickResult = tryButtonClick(exactButton);
     if (clickResult) {
-      console.log('Direct button click succeeded!');
       return true; // Exit immediately on success
     }
   }
@@ -147,7 +143,6 @@ function performVideoControl(command) {
   // If direct button approach fails, continue with pattern matching
   const playerPatterns = trySpecificPlayerPatterns();
   if (playerPatterns.length > 0) {
-    console.log('Found specific player control pattern(s), trying targeted approach first');
     for (const pattern of playerPatterns) {
       let foundButton = null;
       for (const btn of pattern.buttons) {
@@ -173,7 +168,7 @@ function performVideoControl(command) {
           ariaLabel.includes("notification") ||
           (btn.querySelector('svg path') && !svgUseHref) // Skip buttons with SVG paths but no href 
         ) {
-          console.log("Avoiding non-video control button:", btn.outerHTML);
+
           continue; // Skip this button entirely
         }
 
@@ -220,21 +215,11 @@ function performVideoControl(command) {
             innerText.includes('rewind') ||
             svgUseHref.includes('plyr-rewind')
           ) {
-            console.log("Avoiding rewind button for fast-forward:", btn.outerHTML);
+
             isMatch = false;
           }
         }
 
-        console.log(`Button candidate for ${command}:`, btn.outerHTML,
-          {
-            btnDataPlyr,
-            ariaLabel,
-            title,
-            innerText,
-            svgUseHref,
-            isMatch
-          }
-        );
 
         if (isMatch) {
           foundButton = btn;
@@ -243,12 +228,10 @@ function performVideoControl(command) {
       }
 
       if (foundButton) {
-        console.log(`Clicking button for '${command}' from identified control group:`, foundButton.outerHTML);
         try {
           // Use our new tryButtonClick method for more reliable clicking
           const success = tryButtonClick(foundButton);
           if (success) {
-            console.log('Specific player control group approach succeeded!');
             return true; // Exit immediately on success
           }
         } catch (e) {
@@ -261,7 +244,7 @@ function performVideoControl(command) {
   // Try direct HTML5 approach next
   const html5Result = tryHTML5VideoMethod(command);
   if (html5Result) {
-    console.log('HTML5 video method succeeded!');
+
     return true;
   }
 
@@ -269,19 +252,19 @@ function performVideoControl(command) {
   if (command === 'rewind') {
     const rewindResult = tryRewindFallback();
     if (rewindResult) {
-      console.log('Rewind fallback succeeded!');
+
       return true;
     }
   } else if (command === 'play-pause') {
     const playPauseResult = tryPlayPauseFallback();
     if (playPauseResult) {
-      console.log('Play/pause fallback succeeded!');
+
       return true;
     }
   } else if (command === 'fast-forward') {
     const fastForwardResult = tryFastForwardSafely();
     if (fastForwardResult) {
-      console.log('Safe fast-forward method succeeded!');
+
       return true;
     }
   }
@@ -289,7 +272,7 @@ function performVideoControl(command) {
   // If all else fails, try keyboard events as a last resort
   const keyboardResult = tryKeyboardMethod(command);
   if (keyboardResult) {
-    console.log('Keyboard events method succeeded!');
+
     return true;
   }
 
@@ -302,25 +285,25 @@ function tryHTML5VideoMethod(command) {
   try {
     // First check if we already have a cached video element
     if (!cachedVideoElement) {
-      console.log('Looking for HTML5 video elements...');
+
 
       // Find all video elements on the page
       let videos = document.querySelectorAll('video');
-      console.log(`Found ${videos.length} direct video elements`);
+
 
       // If no videos found directly, try finding in iframes
       if (videos.length === 0) {
         try {
           // Try to access videos in all iframes
           const iframes = document.querySelectorAll('iframe');
-          console.log(`Checking ${iframes.length} iframes for videos`);
+
 
           for (const iframe of iframes) {
             try {
               if (iframe.contentDocument && iframe.contentDocument.querySelectorAll) {
                 const iframeVideos = iframe.contentDocument.querySelectorAll('video');
                 if (iframeVideos.length > 0) {
-                  console.log(`Found ${iframeVideos.length} videos in iframe`);
+
                   videos = iframeVideos;
                   break;
                 }
@@ -357,7 +340,7 @@ function tryHTML5VideoMethod(command) {
 
         // Cache the best video element for future use
         cachedVideoElement = bestVideo;
-        console.log('Caching video element for future use:', cachedVideoElement);
+        ;
       } else {
         return false; // No videos found
       }
@@ -371,13 +354,11 @@ function tryHTML5VideoMethod(command) {
         // Fast forward by 10 seconds
         const originalTime = video.currentTime;
         video.currentTime += 10;
-        console.log(`Fast-forwarding video by 10 seconds (from ${originalTime} to ${video.currentTime})`);
         return Math.abs(video.currentTime - originalTime) > 1; // Return true only if it actually moved
       case 'rewind':
         // Rewind by 10 seconds
         const startTime = video.currentTime;
         video.currentTime -= 10;
-        console.log(`Rewinding video by 10 seconds (from ${startTime} to ${video.currentTime})`);
         return Math.abs(video.currentTime - startTime) > 1; // Return true only if it actually moved
       case 'play-pause':
         // Toggle play/pause
@@ -386,7 +367,7 @@ function tryHTML5VideoMethod(command) {
           // Handle the play promise to avoid uncaught promise errors
           if (playPromise !== undefined) {
             playPromise
-              .then(() => console.log('Playing video (HTML5 method)'))
+              .then(() => { })
               .catch(error => {
                 console.error('Error playing video:', error);
                 return false;
@@ -394,7 +375,6 @@ function tryHTML5VideoMethod(command) {
           }
         } else {
           video.pause();
-          console.log('Pausing video (HTML5 method)');
         }
         return true;
     }
@@ -408,7 +388,7 @@ function tryHTML5VideoMethod(command) {
 
 // Special method for directly targeting specific player control patterns
 function trySpecificPlayerPatterns() {
-  console.log('Trying to detect specific player control patterns/groups');
+
   const groupSelectors = [
     '.plyr__controls', // Plyr specific
     '.ytp-left-controls', '.ytp-chrome-bottom', // YouTube specific
@@ -428,13 +408,12 @@ function trySpecificPlayerPatterns() {
   for (const selector of groupSelectors) {
     const controlGroupsOnPage = document.querySelectorAll(selector);
     if (controlGroupsOnPage.length > 0) {
-      console.log(`Found ${controlGroupsOnPage.length} potential groups with selector '${selector}'`);
+      ;
     }
     for (const group of controlGroupsOnPage) {
       // Check if this group element has already been added to playerPatterns by a more specific selector
       let alreadyProcessed = playerPatterns.some(p => p.element === group);
       if (alreadyProcessed) {
-        console.log('Skipping already processed group:', group);
         continue;
       }
 
@@ -461,7 +440,7 @@ function trySpecificPlayerPatterns() {
     }
   }
 
-  console.log(`Found ${uniquePatterns.length} unique potential player control pattern(s)/group(s)`);
+  ;
   return uniquePatterns;
 }
 
@@ -471,8 +450,6 @@ function clickVideoButtonAggressively(command) {
     // First try the specific player patterns based on the screenshot
     const playerPatterns = trySpecificPlayerPatterns();
     if (playerPatterns.length > 0) {
-      console.log('Trying specific player control patterns first');
-
       // Map commands to positions in the control layout (based on screenshot)
       const positionMap = {
         'play-pause': 0,   // Left button (pause)
@@ -485,7 +462,6 @@ function clickVideoButtonAggressively(command) {
       for (const pattern of playerPatterns) {
         if (pattern.type === '3-button-row' && targetIndex < pattern.buttons.length) {
           const targetButton = pattern.buttons[targetIndex];
-          console.log(`Clicking button ${targetIndex} from pattern:`, targetButton.outerHTML);
 
           // Try multiple ways to click the button
           ['mousedown', 'mouseup', 'click'].forEach(eventType => {
@@ -517,7 +493,6 @@ function clickVideoButtonAggressively(command) {
     }
 
     const allButtons = document.querySelectorAll('button');
-    console.log(`Found ${allButtons.length} total buttons for aggressive clicking`);
 
     let success = false;
 
@@ -525,7 +500,6 @@ function clickVideoButtonAggressively(command) {
     for (const index of targetIndices) {
       if (index < allButtons.length) {
         const button = allButtons[index];
-        console.log(`Aggressively clicking button at index ${index}:`, button.outerHTML);
 
         // Try multiple click approaches
         try {
@@ -547,20 +521,17 @@ function clickVideoButtonAggressively(command) {
           // Also try to check if there's an SVG or span inside to click
           const svgElement = button.querySelector('svg');
           if (svgElement) {
-            console.log('Clicking inner SVG element');
             svgElement.click();
           }
 
           const useElement = button.querySelector('use');
           if (useElement) {
-            console.log('Clicking inner use element');
             useElement.click();
           }
 
           // Also try triggering the default action
           const form = button.closest('form');
           if (form) {
-            console.log('Submitting containing form');
             form.submit();
           }
 
@@ -568,7 +539,6 @@ function clickVideoButtonAggressively(command) {
           if (command === 'rewind') {
             const video = document.querySelector('video');
             if (video) {
-              console.log('Also rewinding video directly');
               video.currentTime -= 10;
             }
           }
@@ -585,11 +555,9 @@ function clickVideoButtonAggressively(command) {
     const targetButtons = document.querySelectorAll(`button[data-plyr="${dataAttr}"]`);
 
     if (targetButtons.length > 0) {
-      console.log(`Found ${targetButtons.length} buttons with data-plyr="${dataAttr}"`);
 
       for (const button of targetButtons) {
         try {
-          console.log(`Clicking button with data-plyr="${dataAttr}":`, button.outerHTML);
           button.click();
           success = true;
         } catch (e) {
@@ -610,12 +578,11 @@ function clickVideoButton(command) {
   try {
     // Find all the buttons to ensure we don't miss any due to DOM changes
     const allButtons = document.querySelectorAll('button');
-    console.log(`Found ${allButtons.length} total buttons`);
 
     // Based on the screenshot showing pause, -10s, +10s buttons in a row
     // First try to identify a row of three adjacent video control buttons
     const videoControlGroups = document.querySelectorAll('.ytp-left-controls, .plyr__controls, .vjs-control-bar, .mejs__controls, .video-controls, [class*="controls"]');
-    console.log(`Found ${videoControlGroups.length} potential control groups`);
+
 
     // Store all potential target buttons to try
     const targetButtons = [];
@@ -626,7 +593,7 @@ function clickVideoButton(command) {
         const buttons = group.querySelectorAll('button');
         // If we find a group with 3 buttons next to each other, they're likely the play/rewind/forward
         if (buttons.length >= 3) {
-          console.log('Found a group with 3+ control buttons');
+
 
           // Map positions based on common UI patterns (play/pause leftmost, rewind middle, forward rightmost)
           const positionMap = {
@@ -637,7 +604,7 @@ function clickVideoButton(command) {
 
           const targetPos = positionMap[command];
           if (targetPos !== undefined && targetPos < buttons.length) {
-            console.log(`Adding position-based button at index ${targetPos}`);
+
             targetButtons.push(buttons[targetPos]);
           }
         }
@@ -760,8 +727,6 @@ function clickVideoButton(command) {
       }
     }
 
-    console.log(`Found ${targetButtons.length} potential ${command} buttons to try`);
-
     if (targetButtons.length === 0) {
       console.error(`Could not find any ${command} button`);
       return false;
@@ -771,8 +736,6 @@ function clickVideoButton(command) {
     let success = false;
     for (const button of targetButtons) {
       try {
-        console.log(`Trying to click ${command} button:`, button.outerHTML);
-
         // Try multiple click approaches
         ['mousedown', 'mouseup', 'click'].forEach(eventType => {
           button.dispatchEvent(new MouseEvent(eventType, {
@@ -835,27 +798,20 @@ function tryKeyboardMethod(command) {
     // Try focusing different elements in order of specificity
     if (videoElements.length > 0) {
       targetElement = videoElements[0];
-      console.log('Focusing video element before key press');
       videoElements[0].focus();
       focused = true;
     }
 
     if (!focused && playerElements.length > 0) {
       targetElement = playerElements[0];
-      console.log('Focusing player element before key press');
       playerElements[0].focus();
       focused = true;
     }
 
     if (!focused && videoControlsElements.length > 0) {
       targetElement = videoControlsElements[0];
-      console.log('Focusing video controls before key press');
       videoControlsElements[0].focus();
       focused = true;
-    }
-
-    if (!focused) {
-      console.log('No specific element found to focus, using document for key events');
     }
 
     // Helper to create keyboard events
@@ -879,8 +835,6 @@ function tryKeyboardMethod(command) {
     const { main, alt } = keyMap[command];
     const [mainKey, mainKeyCode] = main;
 
-    console.log(`Trying main keyboard shortcut: ${mainKey} for ${command}`);
-
     // Create keydown and keyup events
     const keyDownEvent = createKeyboardEvent('keydown', mainKey, mainKeyCode);
     const keyUpEvent = createKeyboardEvent('keyup', mainKey, mainKeyCode);
@@ -898,8 +852,6 @@ function tryKeyboardMethod(command) {
       if (alt) {
         const [altKey, altKeyCode, altKeyLower] = alt;
 
-        console.log(`Trying alternative keyboard shortcut: ${altKey} for ${command}`);
-
         // Create alternative keydown and keyup events
         const altKeyDownEvent = createKeyboardEvent('keydown', altKey, altKeyCode);
         const altKeyUpEvent = createKeyboardEvent('keyup', altKey, altKeyCode);
@@ -914,8 +866,6 @@ function tryKeyboardMethod(command) {
 
           // Also try lowercase version if it's a letter
           if (altKeyLower) {
-            console.log(`Trying lowercase keyboard shortcut: ${altKeyLower} for ${command}`);
-
             const lowerKeyDownEvent = createKeyboardEvent('keydown', altKeyLower, altKeyCode);
             const lowerKeyUpEvent = createKeyboardEvent('keyup', altKeyLower, altKeyCode);
 
@@ -931,7 +881,6 @@ function tryKeyboardMethod(command) {
       }
     }, 50);
 
-    console.log(`Simulated keyboard shortcuts for ${command}`);
     return true;
   } catch (e) {
     console.error('Error in keyboard method:', e);
@@ -948,7 +897,6 @@ function tryFastForwardSafely() {
     // Direct data-plyr selectors (safest)
     const plyrButtons = document.querySelectorAll('button[data-plyr="fast-forward"]');
     if (plyrButtons.length > 0) {
-      console.log(`Found ${plyrButtons.length} buttons with data-plyr="fast-forward"`);
       validButtons.push(...Array.from(plyrButtons));
     }
 
@@ -977,10 +925,8 @@ function tryFastForwardSafely() {
     }
 
     if (validButtons.length > 0) {
-      console.log(`Found ${validButtons.length} safe fast-forward buttons to try`);
 
       for (const btn of validButtons) {
-        console.log('Trying safe fast-forward button:', btn.outerHTML);
         btn.click();
         return true;
       }
@@ -1008,7 +954,6 @@ function tryRewindFallback() {
     // Direct data-plyr selectors (safest)
     const plyrButtons = document.querySelectorAll('button[data-plyr="rewind"]');
     if (plyrButtons.length > 0) {
-      console.log(`Found ${plyrButtons.length} buttons with data-plyr="rewind"`);
       validButtons.push(...Array.from(plyrButtons));
     }
 
@@ -1047,10 +992,8 @@ function tryRewindFallback() {
     }
 
     if (validButtons.length > 0) {
-      console.log(`Found ${validButtons.length} safe rewind buttons to try`);
 
       for (const btn of validButtons) {
-        console.log('Trying safe rewind button:', btn.outerHTML);
         if (tryButtonClick(btn)) {
           return true;
         }
@@ -1060,7 +1003,6 @@ function tryRewindFallback() {
     // Try to find a video element directly and rewind it
     const videos = document.querySelectorAll('video');
     if (videos.length > 0) {
-      console.log('Attempting direct rewind on video element');
       const video = videos[0];
       const originalTime = video.currentTime;
 
@@ -1069,7 +1011,6 @@ function tryRewindFallback() {
 
       // Check if we actually moved 
       if (Math.abs(video.currentTime - originalTime) > 1) {
-        console.log('Direct video rewind succeeded');
         return true;
       }
     }
@@ -1083,12 +1024,10 @@ function tryRewindFallback() {
 
 function tryPlayPauseFallback() {
   try {
-    console.log('Executing play-pause fallback, using highly targeted approach');
 
     // Find only the plyr play button and try to click it first - this is the most reliable
     const plyrButton = document.querySelector('button[data-plyr="play"]');
     if (plyrButton) {
-      console.log('Found Plyr play button directly:', plyrButton.outerHTML);
       plyrButton.click();
       return true;
     }
@@ -1104,7 +1043,6 @@ function tryPlayPauseFallback() {
     });
 
     if (playPauseButtons.length > 0) {
-      console.log('Found play/pause button with svg reference:', playPauseButtons[0].outerHTML);
       playPauseButtons[0].click();
       return true;
     }
@@ -1112,7 +1050,6 @@ function tryPlayPauseFallback() {
     // Try direct video approach - third most reliable
     const videos = document.querySelectorAll('video');
     if (videos.length > 0) {
-      console.log('No buttons found, attempting direct play/pause on video element');
       const video = videos[0];
 
       // Toggle play state
@@ -1120,20 +1057,17 @@ function tryPlayPauseFallback() {
         const playPromise = video.play();
         if (playPromise !== undefined) {
           playPromise.then(() => {
-            console.log('Direct video play succeeded');
           }).catch(error => {
             console.error('Error playing video:', error);
           });
         }
       } else {
         video.pause();
-        console.log('Direct video pause succeeded');
       }
       return true;
     }
 
     // Only try keyboard as an absolute last resort, with better focus handling
-    console.log('All direct methods failed, trying keyboard shortcut');
 
     // Try focused element approach first
     const activeElement = document.activeElement;
@@ -1202,7 +1136,6 @@ function tryButtonClick(button) {
   if (!button) return false;
 
   try {
-    console.log('Trying to click button with enhanced reliability:', button.outerHTML);
 
     // First try the most direct method - focus and click
     button.focus();
@@ -1245,7 +1178,7 @@ function tryButtonClick(button) {
       }
     }
 
-    console.log('Successfully clicked button using multiple methods');
+
     return true;
   } catch (e) {
     console.error('Error clicking button:', e);
@@ -1267,7 +1200,6 @@ function findExactButton(command) {
   // First, direct data-plyr attribute match (most reliable for Plyr)
   const plyrButton = document.querySelector(`button[data-plyr="${dataPlyrValue}"]`);
   if (plyrButton) {
-    console.log(`Found direct Plyr button for ${command}:`, plyrButton.outerHTML);
     return plyrButton;
   }
 
@@ -1278,7 +1210,7 @@ function findExactButton(command) {
     if (svgUse) {
       const href = svgUse.getAttribute('href') || svgUse.getAttribute('xlink:href') || "";
       if (href === `#plyr-${dataPlyrValue}`) {
-        console.log(`Found button with SVG use href for ${command}:`, btn.outerHTML);
+
         return btn;
       }
     }
@@ -1290,7 +1222,7 @@ function findExactButton(command) {
       if ((command === 'rewind' && textContent === 'Rewind 10s') ||
         (command === 'fast-forward' && textContent === 'Forward 10s') ||
         (command === 'play-pause' && (textContent === 'Play' || textContent === 'Pause'))) {
-        console.log(`Found button with span content for ${command}:`, btn.outerHTML);
+
         return btn;
       }
     }
