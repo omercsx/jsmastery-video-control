@@ -1136,7 +1136,6 @@ function tryButtonClick(button) {
   if (!button) return false;
 
   try {
-
     // First try the most direct method - focus and click
     button.focus();
 
@@ -1161,7 +1160,17 @@ function tryButtonClick(button) {
     // Also try clicking any SVG inside if present (some players listen to these)
     const svg = button.querySelector('svg');
     if (svg) {
-      svg.click();
+      try {
+        // Use dispatchEvent instead of click() since some SVG elements don't support click method
+        svg.dispatchEvent(new MouseEvent('click', {
+          view: window,
+          bubbles: true,
+          cancelable: true,
+          composed: true
+        }));
+      } catch (svgError) {
+        // Ignore errors with SVG click - this is just a supplementary action
+      }
     }
 
     // For play buttons, try setting aria-pressed attribute directly
@@ -1178,10 +1187,8 @@ function tryButtonClick(button) {
       }
     }
 
-
     return true;
   } catch (e) {
-    console.error('Error clicking button:', e);
     return false;
   }
 }
