@@ -4,9 +4,9 @@ A Chrome extension that allows you to control video playback on JSMastery websit
 
 ## Features
 
-- Fast-forward: Ctrl+Shift+3 (Command+Shift+3 on Mac)
-- Rewind: Ctrl+Shift+1 (Command+Shift+1 on Mac)
-- Play/Pause: Ctrl+Shift+2 (Command+Shift+2 on Mac)
+- Fast-forward: Alt+Shift+3
+- Rewind: Alt+Shift+1
+- Play/Pause: Alt+Shift+2
 
 ## Installation
 
@@ -19,6 +19,6 @@ A Chrome extension that allows you to control video playback on JSMastery websit
 
 1. Navigate to the website with the video player
 2. Use the keyboard shortcuts to control playback:
-   - Alt+Shift+3: Fast-forward (Command+Shift+3 on Mac)
-   - Alt+Shift+1: Rewind (Command+Shift+1 on Mac)
-   - Alt+Shift+2: Play/Pause (Command+Shift+2 on Mac)
+   - Alt+Shift+3: Fast-forward
+   - Alt+Shift+1: Rewind
+   - Alt+Shift+2: Play/Pause
