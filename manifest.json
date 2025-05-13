@@ -1,0 +1,45 @@
+{
+	"manifest_version": 3,
+	"name": "JSMastery Video Control Extension",
+	"version": "1.0",
+	"description": "Control video playback with keyboard shortcuts",
+	"background": {
+		"service_worker": "background.js"
+	},
+	"action": {
+		"default_popup": "popup.html"
+	},
+	"permissions": ["activeTab", "scripting", "tabs"],
+	"host_permissions": ["<all_urls>"],
+	"content_scripts": [
+		{
+			"matches": ["<all_urls>"],
+			"js": ["content.js"],
+			"run_at": "document_idle",
+			"all_frames": true
+		}
+	],
+	"commands": {
+		"fast-forward": {
+			"suggested_key": {
+				"default": "Alt+Shift+3",
+				"mac": "Alt+Shift+3"
+			},
+			"description": "Fast-forward the video"
+		},
+		"rewind": {
+			"suggested_key": {
+				"default": "Alt+Shift+1",
+				"mac": "Alt+Shift+1"
+			},
+			"description": "Rewind the video"
+		},
+		"play-pause": {
+			"suggested_key": {
+				"default": "Alt+Space",
+				"mac": "Alt+Space"
+			},
+			"description": "Play/Pause the video"
+		}
+	}
+}

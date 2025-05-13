@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Video Control Extension</title>
+		<style>
+			body {
+				width: 300px;
+				font-family: Arial, sans-serif;
+				padding: 10px;
+			}
+			h1 {
+				font-size: 18px;
+				color: #333;
+				margin-bottom: 15px;
+			}
+			.shortcut {
+				display: flex;
+				justify-content: space-between;
+				margin-bottom: 10px;
+				padding: 5px;
+				border-radius: 4px;
+			}
+			.shortcut:hover {
+				background-color: #f5f5f5;
+			}
+			.key {
+				font-family: monospace;
+				background-color: #eee;
+				padding: 2px 6px;
+				border-radius: 3px;
+				border: 1px solid #ddd;
+			}
+			.command {
+				font-weight: bold;
+			}
+			.footer {
+				margin-top: 15px;
+				font-size: 12px;
+				color: #666;
+				border-top: 1px solid #eee;
+				padding-top: 10px;
+			}
+		</style>
+	</head>
+	<body>
+		<h1>Video Control Shortcuts</h1>
+
+		<div class="shortcut">
+			<div class="command">Fast-forward:</div>
+			<div>
+				<span class="key">Ctrl</span> + <span class="key">Shift</span> +
+				<span class="key">3</span>
+			</div>
+		</div>
+
+		<div class="shortcut">
+			<div class="command">Rewind:</div>
+			<div>
+				<span class="key">Ctrl</span> + <span class="key">Shift</span> +
+				<span class="key">1</span>
+			</div>
+		</div>
+
+		<div class="shortcut">
+			<div class="command">Play/Pause:</div>
+			<div>
+				<span class="key">Ctrl</span> + <span class="key">Shift</span> +
+				<span class="key">2</span>
+			</div>
+		</div>
+
+		<div class="footer">
+			<p>These shortcuts work on the specific video website.</p>
+			<p><small>Note: On Mac, Ctrl is interpreted as Command (⌘)</small></p>
+		</div>
+
+		<script src="popup.js"></script>
+	</body>
+</html>
