@@ -9,6 +9,7 @@ let isProcessingCommand = false;
 // Global command lock using localStorage
 const COMMAND_LOCK_KEY = 'jsmastery_videocontrol_command_lock';
 const COMMAND_LOCK_EXPIRY = 'jsmastery_videocontrol_lock_expiry';
+const LAST_COMMAND_TIMESTAMP = 'jsmastery_videocontrol_last_timestamp';
 
 // Function to acquire a command lock
 function acquireCommandLock() {
@@ -61,6 +62,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    // Check for duplicate commands using timestamp
+    if (message.timestamp) {
+      const lastTimestamp = parseInt(localStorage.getItem(LAST_COMMAND_TIMESTAMP) || '0');
+      if (message.timestamp - lastTimestamp < 500) {
+        sendResponse({ success: false, reason: 'duplicate-timestamp' });
+        return true;
+      }
+
+      // Store this command's timestamp
+      localStorage.setItem(LAST_COMMAND_TIMESTAMP, message.timestamp.toString());
+    }
+
     // Try to acquire the global command lock
     if (!acquireCommandLock()) {
       sendResponse({ success: false, reason: 'locked' });
@@ -78,24 +91,89 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       document.addEventListener('keydown', preventHandler, true);
       document.addEventListener('keyup', preventHandler, true);
 
-      // For play-pause, try direct button click only - more reliable than fallbacks
+      // For play-pause, try multiple approaches immediately
       if (command === 'play-pause') {
+
+        // Try multiple approaches for play/pause
+        const videos = document.querySelectorAll('video');
+        let success = false;
+
+        // First try direct video control (most reliable)
+        if (videos.length > 0) {
+          let video = videos[0];
+
+          // Try to find the most active video
+          for (const v of videos) {
+            if (!v.paused) {
+              video = v;
+              break;
+            }
+          }
+
+          if (video.paused) {
+            try {
+              const playPromise = video.play();
+              if (playPromise !== undefined) {
+                playPromise.then(() => {
+                  success = true;
+                }).catch(error => {
+                  console.error('Error playing video:', error);
+                });
+              }
+            } catch (e) {
+              console.error("Error during play:", e);
+            }
+          } else {
+            try {
+              video.pause();
+              success = true;
+            } catch (e) {
+              console.error("Error during pause:", e);
+            }
+          }
+        }
+
+        // Also try clicking buttons (can't hurt to try both approaches)
         const exactButton = findExactButton(command);
         if (exactButton) {
-          const clickResult = tryButtonClick(exactButton);
-
-          // Clean up and respond
-          setTimeout(() => {
-            document.removeEventListener('keydown', preventHandler, true);
-            document.removeEventListener('keyup', preventHandler, true);
-          }, 200);
-
-          // Release locks and respond
-          isProcessingCommand = false;
-          releaseCommandLock();
-          sendResponse({ success: clickResult });
-          return true;
+          tryButtonClick(exactButton);
+          success = true;
         }
+
+        // As a fallback, try a spacebar press
+        if (!success) {
+          document.dispatchEvent(new KeyboardEvent('keydown', {
+            key: ' ',
+            code: 'Space',
+            keyCode: 32,
+            which: 32,
+            bubbles: true,
+            cancelable: true
+          }));
+
+          setTimeout(() => {
+            document.dispatchEvent(new KeyboardEvent('keyup', {
+              key: ' ',
+              code: 'Space',
+              keyCode: 32,
+              which: 32,
+              bubbles: true,
+              cancelable: true
+            }));
+          }, 50);
+        }
+
+        // Clean up and respond
+        setTimeout(() => {
+          document.removeEventListener('keydown', preventHandler, true);
+          document.removeEventListener('keyup', preventHandler, true);
+        }, 200);
+
+        // Release locks and respond
+        isProcessingCommand = false;
+        releaseCommandLock();
+        sendResponse({ success: true });
+        return true;
       }
 
       // For other commands, or if play-pause button not found, use regular flow
@@ -309,8 +387,6 @@ function tryHTML5VideoMethod(command) {
                 }
               }
             } catch (frameError) {
-              // Cross-origin iframe access might fail - this is expected for many iframes
-              console.log('Could not access iframe content (likely cross-origin)');
             }
           }
         } catch (iframeError) {
@@ -351,15 +427,11 @@ function tryHTML5VideoMethod(command) {
 
     switch (command) {
       case 'fast-forward':
-        // Fast forward by 10 seconds
-        const originalTime = video.currentTime;
-        video.currentTime += 10;
-        return Math.abs(video.currentTime - originalTime) > 1; // Return true only if it actually moved
+        // Skip looking for video element and use clickOnlyForwardButton()
+        return clickOnlyForwardButton();
       case 'rewind':
-        // Rewind by 10 seconds
-        const startTime = video.currentTime;
-        video.currentTime -= 10;
-        return Math.abs(video.currentTime - startTime) > 1; // Return true only if it actually moved
+        // Skip looking for video element and use clickOnlyRewindButton()
+        return clickOnlyRewindButton();
       case 'play-pause':
         // Toggle play/pause
         if (video.paused) {
@@ -539,7 +611,8 @@ function clickVideoButtonAggressively(command) {
           if (command === 'rewind') {
             const video = document.querySelector('video');
             if (video) {
-              video.currentTime -= 10;
+              // Use adjustVideoTime which now has compensation for the 3x issue
+              adjustVideoTime(video, -10);
             }
           }
 
@@ -1004,13 +1077,9 @@ function tryRewindFallback() {
     const videos = document.querySelectorAll('video');
     if (videos.length > 0) {
       const video = videos[0];
-      const originalTime = video.currentTime;
 
-      // Try different approaches to rewind
-      video.currentTime -= 10;
-
-      // Check if we actually moved 
-      if (Math.abs(video.currentTime - originalTime) > 1) {
+      // Try using our precision function
+      if (adjustVideoTime(video, -10)) {
         return true;
       }
     }
@@ -1161,7 +1230,21 @@ function tryButtonClick(button) {
     // Also try clicking any SVG inside if present (some players listen to these)
     const svg = button.querySelector('svg');
     if (svg) {
-      svg.click();
+      try {
+        // Some SVG elements might not have a click method
+        if (typeof svg.click === 'function') {
+          svg.click();
+        } else {
+          // Trigger a click event on the SVG instead
+          svg.dispatchEvent(new MouseEvent('click', {
+            view: window,
+            bubbles: true,
+            cancelable: true,
+            composed: true
+          }));
+        }
+      } catch (e) {
+      }
     }
 
     // For play buttons, try setting aria-pressed attribute directly
@@ -1229,4 +1312,263 @@ function findExactButton(command) {
   }
 
   return null;
+}
+
+// Track last time adjustment to prevent duplicates
+let lastTimeAdjustment = 0;
+
+// Helper function that simulates a SINGLE arrow key press
+function adjustVideoTime(video, adjustmentSeconds) {
+  // Instead of trying to adjust time directly, let's simulate a single key press event
+  try {
+    // Prevent multiple rapid adjustments
+    const now = Date.now();
+    if (now - lastTimeAdjustment < 400) {
+      return true; // Return true to prevent fallback methods
+    }
+
+    // Record this adjustment time
+    lastTimeAdjustment = now;
+
+    // Determine which key to press based on direction
+    const key = adjustmentSeconds > 0 ? 'ArrowRight' : 'ArrowLeft';
+    const keyCode = adjustmentSeconds > 0 ? 39 : 37;
+
+    // Create and dispatch a SINGLE keydown event
+    const keyDownEvent = new KeyboardEvent('keydown', {
+      key: key,
+      code: adjustmentSeconds > 0 ? 'ArrowRight' : 'ArrowLeft',
+      keyCode: keyCode,
+      which: keyCode,
+      bubbles: true,
+      cancelable: true,
+      view: window
+    });
+
+    // We'll focus the video element first if possible
+    if (video) {
+      video.focus();
+    }
+
+    // Send event to document (this is what most players detect)
+    document.dispatchEvent(keyDownEvent);
+
+    // Follow up with a keyup after a short delay
+    setTimeout(() => {
+      const keyUpEvent = new KeyboardEvent('keyup', {
+        key: key,
+        code: adjustmentSeconds > 0 ? 'ArrowRight' : 'ArrowLeft',
+        keyCode: keyCode,
+        which: keyCode,
+        bubbles: true,
+        cancelable: true,
+        view: window
+      });
+
+      document.dispatchEvent(keyUpEvent);
+    }, 50);
+
+    return true;
+  } catch (e) {
+    console.error('Error simulating key press:', e);
+    return false;
+  }
+}
+
+// Specialized function to ONLY find and click the forward button
+function clickOnlyForwardButton() {
+  try {
+    // Try finding buttons with the most common attributes for forward buttons
+    const possibleButtons = [];
+
+    // Try by aria-label (most reliable)
+    document.querySelectorAll('[aria-label*="forward"], [aria-label*="Forward"], [aria-label*="10s"], [aria-label*="+10"]').forEach(el => {
+      if (el.tagName === 'BUTTON' || el.role === 'button') {
+        possibleButtons.push(el);
+      }
+    });
+
+    // Try by title
+    document.querySelectorAll('[title*="forward"], [title*="Forward"], [title*="10s"], [title*="+10"]').forEach(el => {
+      if (el.tagName === 'BUTTON' || el.role === 'button') {
+        possibleButtons.push(el);
+      }
+    });
+
+    // Try by data attribute
+    document.querySelectorAll('[data-plyr="fast-forward"]').forEach(el => {
+      possibleButtons.push(el);
+    });
+
+    // Try by class
+    document.querySelectorAll('.plyr__controls__item--forward, .vjs-skip-forward-button, .forward-button, [class*="forward"]').forEach(el => {
+      if (el.tagName === 'BUTTON' || el.role === 'button') {
+        possibleButtons.push(el);
+      }
+    });
+
+    // Try by inner text/content
+    document.querySelectorAll('button').forEach(btn => {
+      const text = btn.textContent?.toLowerCase() || '';
+      const innerHtml = btn.innerHTML.toLowerCase();
+      if (text.includes('forward') || text.includes('+10') || innerHtml.includes('forward') || innerHtml.includes('+10')) {
+        possibleButtons.push(btn);
+      }
+    });
+
+    // Try SVG paths inside buttons
+    document.querySelectorAll('button svg').forEach(svg => {
+      const button = svg.closest('button');
+      if (button) {
+        // Get any title inside the SVG
+        const title = svg.querySelector('title');
+        if (title && (title.textContent.includes('forward') || title.textContent.includes('Forward'))) {
+          possibleButtons.push(button);
+        }
+
+        // Check SVG use elements
+        const use = svg.querySelector('use');
+        if (use) {
+          const href = use.getAttribute('href') || use.getAttribute('xlink:href') || '';
+          if (href.includes('forward') || href.includes('fast-forward')) {
+            possibleButtons.push(button);
+          }
+        }
+      }
+    });
+
+    // Deduplicate buttons
+    const uniqueButtons = Array.from(new Set(possibleButtons));
+
+    if (uniqueButtons.length > 0) {
+      // Try each button until one works
+      for (const button of uniqueButtons) {
+        try {
+          // Try multiple click events to ensure it triggers
+          button.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
+
+          button.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
+
+          button.click();
+          return true;
+        } catch (e) {
+          // Continue to the next button
+        }
+      }
+    }
+
+    // If we couldn't find any buttons, fall back to keyboard
+    return adjustVideoTime(null, 10);
+  } catch (e) {
+    console.error('Error in clickOnlyForwardButton:', e);
+    return false;
+  }
+}
+
+// Specialized function to ONLY find and click rewind button
+function clickOnlyRewindButton() {
+  try {
+    // Try finding buttons with the most common attributes for rewind buttons
+    const possibleButtons = [];
+
+    // Try by aria-label (most reliable)
+    document.querySelectorAll('[aria-label*="rewind"], [aria-label*="Rewind"], [aria-label*="back"], [aria-label*="Back"], [aria-label*="-10"], [aria-label*="previous"], [aria-label*="Previous"]').forEach(el => {
+      if (el.tagName === 'BUTTON' || el.role === 'button') {
+        possibleButtons.push(el);
+      }
+    });
+
+    // Try by title
+    document.querySelectorAll('[title*="rewind"], [title*="Rewind"], [title*="back"], [title*="Back"], [title*="-10"], [title*="previous"], [title*="Previous"]').forEach(el => {
+      if (el.tagName === 'BUTTON' || el.role === 'button') {
+        possibleButtons.push(el);
+      }
+    });
+
+    // Try by data attribute
+    document.querySelectorAll('[data-plyr="rewind"]').forEach(el => {
+      possibleButtons.push(el);
+    });
+
+    // Try by class
+    document.querySelectorAll('.plyr__controls__item--rewind, .vjs-skip-backward-button, .backward-button, .rewind-button, [class*="rewind"], [class*="back"]').forEach(el => {
+      if (el.tagName === 'BUTTON' || el.role === 'button') {
+        possibleButtons.push(el);
+      }
+    });
+
+    // Try by inner text/content
+    document.querySelectorAll('button').forEach(btn => {
+      const text = btn.textContent?.toLowerCase() || '';
+      const innerHtml = btn.innerHTML.toLowerCase();
+      if (text.includes('rewind') || text.includes('back') || text.includes('-10') ||
+        innerHtml.includes('rewind') || innerHtml.includes('back') || innerHtml.includes('-10')) {
+        possibleButtons.push(btn);
+      }
+    });
+
+    // Try SVG paths inside buttons
+    document.querySelectorAll('button svg').forEach(svg => {
+      const button = svg.closest('button');
+      if (button) {
+        // Get any title inside the SVG
+        const title = svg.querySelector('title');
+        if (title && (title.textContent.includes('rewind') || title.textContent.includes('Rewind') ||
+          title.textContent.includes('back') || title.textContent.includes('Back'))) {
+          possibleButtons.push(button);
+        }
+
+        // Check SVG use elements
+        const use = svg.querySelector('use');
+        if (use) {
+          const href = use.getAttribute('href') || use.getAttribute('xlink:href') || '';
+          if (href.includes('rewind') || href.includes('back')) {
+            possibleButtons.push(button);
+          }
+        }
+      }
+    });
+
+    // Deduplicate buttons
+    const uniqueButtons = Array.from(new Set(possibleButtons));
+
+    if (uniqueButtons.length > 0) {
+      // Try each button until one works
+      for (const button of uniqueButtons) {
+        try {
+          // Try multiple click events to ensure it triggers
+          button.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
+
+          button.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            cancelable: true,
+            view: window
+          }));
+
+          button.click();
+          return true;
+        } catch (e) {
+          // Continue to the next button
+        }
+      }
+    }
+
+    // If we couldn't find any buttons, fall back to keyboard
+    return adjustVideoTime(null, -10);
+  } catch (e) {
+    console.error('Error in clickOnlyRewindButton:', e);
+    return false;
+  }
 } 

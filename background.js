@@ -1,13 +1,41 @@
 // Add a flag to track if a command is currently being processed
 let isProcessingCommand = false;
 
+// Add a debounce timer
+let commandDebounceTimer = null;
+
+// Last command timestamp to track and prevent duplicate executions
+let lastCommandTimestamp = 0;
+
 // Listen for keyboard commands
 chrome.commands.onCommand.addListener((command) => {
+  // Strong protection against multiple rapid executions
+  const now = Date.now();
 
-  // Prevent rapid-fire commands that could cause conflicts
-  if (isProcessingCommand) {
+  // If another command was executed in the last 500ms, ignore this one completely
+  if (now - lastCommandTimestamp < 500) {
+    console.log('Command blocked - too soon after previous command');
     return;
   }
+
+  // Record this command's timestamp
+  lastCommandTimestamp = now;
+
+  // Additional protection for commands in process
+  if (isProcessingCommand) {
+    console.log('Command blocked - previous command still processing');
+    return;
+  }
+
+  // Clear any existing debounce timer
+  if (commandDebounceTimer) {
+    clearTimeout(commandDebounceTimer);
+  }
+
+  // Set a debounce timer to prevent multiple rapid keypresses
+  commandDebounceTimer = setTimeout(() => {
+    commandDebounceTimer = null;
+  }, 500); // Increased from 300 to 500ms
 
   isProcessingCommand = true;
 
@@ -61,34 +89,53 @@ function injectContentScriptAndSendCommand(tabId, command) {
       chrome.scripting.executeScript({
         target: { tabId: tabId },
         func: executeCommandDirectly,
-        args: [command]
+        args: [command, Date.now()] // Pass the timestamp to help detect duplicates
       }).catch(err => {
       }).finally(() => {
-        // Release the command processing lock
+        // Release the command processing lock with a longer delay
         setTimeout(() => {
           isProcessingCommand = false;
-        }, 300);
+        }, 500);
       });
     });
 }
 
 // Function to send command to content script
 function sendCommandToContentScript(tabId, command) {
+  // Add command timestamp to allow content script to detect potential duplicates
   chrome.tabs.sendMessage(
     tabId,
-    { action: 'controlVideo', command: command },
+    {
+      action: 'controlVideo',
+      command: command,
+      timestamp: Date.now()
+    },
     function (response) {
-
       // Release the command processing lock after a delay
+      // Using a longer delay for better protection against rapid keypresses
       setTimeout(() => {
         isProcessingCommand = false;
-      }, 300);
+      }, 500);
     }
   );
 }
 
 // Function to be injected directly if content script fails
-function executeCommandDirectly(command) {
+function executeCommandDirectly(command, timestamp) {
+  // Track command execution to prevent duplicates
+  const lastExecutionKey = 'jsmastery_last_command_execution';
+
+  // If we have a timestamp, check if this command was already executed
+  if (timestamp) {
+    const lastTimestamp = parseInt(localStorage.getItem(lastExecutionKey) || '0');
+    if (timestamp - lastTimestamp < 500) {
+      console.log('Direct command blocked - duplicate detected');
+      return true; // Pretend success to avoid fallbacks
+    }
+
+    // Store this execution timestamp
+    localStorage.setItem(lastExecutionKey, timestamp.toString());
+  }
 
   // Try to detect the specific player pattern first (like seen in screenshot)
   const controlGroups = document.querySelectorAll('[class*="controls"], [class*="Controls"], [class*="player"], [class*="Player"]');
@@ -143,21 +190,188 @@ function executeCommandDirectly(command) {
 
     switch (command) {
       case 'fast-forward':
-        video.currentTime += 10;
+        // Look for forward button first (most reliable approach)
+        const forwardButtons = [];
+
+        // Find button by aria-label, title, and other attributes
+        document.querySelectorAll(
+          '[aria-label*="forward"], [aria-label*="Forward"], [aria-label*="10s"], [aria-label*="+10"], ' +
+          '[title*="forward"], [title*="Forward"], [title*="10s"], [title*="+10"], ' +
+          '[data-plyr="fast-forward"], ' +
+          '.plyr__controls__item--forward, .vjs-skip-forward-button, .forward-button, [class*="forward"]'
+        ).forEach(el => {
+          if (el.tagName === 'BUTTON' || el.role === 'button') {
+            forwardButtons.push(el);
+          }
+        });
+
+        // Also try buttons with forward text
+        document.querySelectorAll('button').forEach(btn => {
+          const text = btn.textContent?.toLowerCase() || '';
+          if (text.includes('forward') || text.includes('+10')) {
+            forwardButtons.push(btn);
+          }
+        });
+
+        // Try to click a forward button if found
+        if (forwardButtons.length > 0) {
+          for (const btn of forwardButtons) {
+            try {
+              btn.click();
+              return true;
+            } catch (e) {
+              // Continue to next button
+            }
+          }
+        }
+
+        // If no buttons found, fall back to arrow key press
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowRight',
+          code: 'ArrowRight',
+          keyCode: 39,
+          which: 39,
+          bubbles: true,
+          cancelable: true
+        }));
+
+        setTimeout(() => {
+          document.dispatchEvent(new KeyboardEvent('keyup', {
+            key: 'ArrowRight',
+            code: 'ArrowRight',
+            keyCode: 39,
+            which: 39,
+            bubbles: true,
+            cancelable: true
+          }));
+        }, 50);
+
         return true;
+
       case 'rewind':
-        video.currentTime -= 10;
+        // Look for rewind/back button first (most reliable approach)
+        const rewindButtons = [];
+
+        // Find button by aria-label, title, and other attributes
+        document.querySelectorAll(
+          '[aria-label*="rewind"], [aria-label*="Rewind"], [aria-label*="back"], [aria-label*="Back"], [aria-label*="-10"], ' +
+          '[title*="rewind"], [title*="Rewind"], [title*="back"], [title*="Back"], [title*="-10"], ' +
+          '[data-plyr="rewind"], ' +
+          '.plyr__controls__item--rewind, .vjs-skip-backward-button, .backward-button, .rewind-button, [class*="rewind"], [class*="back"]'
+        ).forEach(el => {
+          if (el.tagName === 'BUTTON' || el.role === 'button') {
+            rewindButtons.push(el);
+          }
+        });
+
+        // Also try buttons with rewind/back text
+        document.querySelectorAll('button').forEach(btn => {
+          const text = btn.textContent?.toLowerCase() || '';
+          if (text.includes('rewind') || text.includes('back') || text.includes('-10')) {
+            rewindButtons.push(btn);
+          }
+        });
+
+        // Try to click a rewind button if found
+        if (rewindButtons.length > 0) {
+          for (const btn of rewindButtons) {
+            try {
+              btn.click();
+              return true;
+            } catch (e) {
+              // Continue to next button
+            }
+          }
+        }
+
+        // If no buttons found, fall back to arrow key press
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowLeft',
+          code: 'ArrowLeft',
+          keyCode: 37,
+          which: 37,
+          bubbles: true,
+          cancelable: true
+        }));
+
+        setTimeout(() => {
+          document.dispatchEvent(new KeyboardEvent('keyup', {
+            key: 'ArrowLeft',
+            code: 'ArrowLeft',
+            keyCode: 37,
+            which: 37,
+            bubbles: true,
+            cancelable: true
+          }));
+        }, 50);
+
         return true;
       case 'play-pause':
-        if (video.paused) {
-          const playPromise = video.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(error => { });
+        console.log("Executing play/pause directly");
+        try {
+          // Try direct video control first
+          if (video.paused) {
+            console.log("Video is paused, trying to play");
+            const playPromise = video.play();
+            if (playPromise !== undefined) {
+              playPromise.catch(error => {
+                console.error("Play error:", error);
+
+                // As a fallback, try spacebar
+                document.dispatchEvent(new KeyboardEvent('keydown', {
+                  key: ' ',
+                  code: 'Space',
+                  keyCode: 32,
+                  which: 32,
+                  bubbles: true,
+                  cancelable: true
+                }));
+
+                setTimeout(() => {
+                  document.dispatchEvent(new KeyboardEvent('keyup', {
+                    key: ' ',
+                    code: 'Space',
+                    keyCode: 32,
+                    which: 32,
+                    bubbles: true,
+                    cancelable: true
+                  }));
+                }, 50);
+              });
+            }
+          } else {
+            console.log("Video is playing, trying to pause");
+            video.pause();
           }
-        } else {
-          video.pause();
+
+          // Also try space key as a fallback
+          setTimeout(() => {
+            document.dispatchEvent(new KeyboardEvent('keydown', {
+              key: ' ',
+              code: 'Space',
+              keyCode: 32,
+              which: 32,
+              bubbles: true,
+              cancelable: true
+            }));
+
+            setTimeout(() => {
+              document.dispatchEvent(new KeyboardEvent('keyup', {
+                key: ' ',
+                code: 'Space',
+                keyCode: 32,
+                which: 32,
+                bubbles: true,
+                cancelable: true
+              }));
+            }, 50);
+          }, 100);
+
+          return true;
+        } catch (e) {
+          console.error("Error in play/pause:", e);
+          return false;
         }
-        return true;
     }
   } else {
     // Try multiple approaches to find and click control buttons
